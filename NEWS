@@ -1,14 +1,35 @@
 
-NEWS for CardinalWorkflows package
--------------------------
+CHANGES IN VERSION 1.33.1 [2024-4-9]
+-----------------------------------
 
-Version 0.99.2 [2015-2-15]
-o Bioconductor Release Candidate 3
-o Minor changes to workflows vignettes
+NEW FEATURES
 
-Version 0.99.1 [2015-1-12]
-o Bioconductor Release Candidate 2
-o Cleaned up biocViews
+    o Added 'exampleMSIData()' to load data
 
-Version 0.99.0 [2014-12-22]
-o Bioconductor Release Candidate 1
+SIGNIFICANT USER-VISIBLE CHANGES
+
+    o Removed old analysis datasets
+
+CHANGES IN VERSION 0.99.2 [2015-2-15]
+-----------------------------------
+
+SIGNIFICANT USER-VISIBLE CHANGES
+
+	o Bioconductor Release Candidate 3
+	o Minor changes to workflows vignettes
+
+CHANGES IN VERSION 0.99.1 [2015-1-12]
+-----------------------------------
+
+SIGNIFICANT USER-VISIBLE CHANGES
+
+	o Bioconductor Release Candidate 2
+	o Cleaned up biocViews
+
+CHANGES IN VERSION 0.99.0 [2015-1-12]
+-----------------------------------
+
+SIGNIFICANT USER-VISIBLE CHANGES
+
+	o Bioconductor Release Candidate 1
+

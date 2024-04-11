@@ -1,7 +1,7 @@
 ---
 title: "Classification of MS imaging experiments with Cardinal"
 author: "Kylie Ariel Bemis"
-date: "Revised: April 21, 2020"
+date: "Revised: April 9, 2024"
 output:
   BiocStyle::html_document:
   toc: true
@@ -18,9 +18,7 @@ BiocStyle::markdown()
 
 ```{r setup, echo=FALSE, message=FALSE}
 library(CardinalWorkflows)
-setCardinalBPPARAM(SerialParam())
 setCardinalVerbose(FALSE)
-RNGkind("L'Ecuyer-CMRG")
 ```
 
 # Introduction 

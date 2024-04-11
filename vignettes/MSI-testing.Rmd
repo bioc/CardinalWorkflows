@@ -18,9 +18,7 @@ BiocStyle::markdown()
 
 ```{r setup, echo=FALSE, message=FALSE}
 library(CardinalWorkflows)
-setCardinalBPPARAM(SerialParam())
 setCardinalVerbose(FALSE)
-RNGkind("L'Ecuyer-CMRG")
 ```
 
 # Introduction 

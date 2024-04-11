@@ -1,7 +1,7 @@
 ---
 title: "Segmentation of MS imaging experiments with Cardinal"
 author: "Kylie Ariel Bemis"
-date: "Revised: April 21, 2020"
+date: "Revised: April 11, 2024"
 output:
   BiocStyle::html_document:
   toc: true
@@ -17,15 +17,13 @@ BiocStyle::markdown()
 ```
 
 ```{r setup, echo=FALSE, message=FALSE}
-library(CardinalWorkflows)
-setCardinalBPPARAM(SerialParam())
+library(Cardinal)
 setCardinalVerbose(FALSE)
-RNGkind("L'Ecuyer-CMRG")
 ```
 
 # Introduction 
 
-The goal of unsupervised analysis of mass spectrometry (MS) imaging experiments is to discover regions in the data with distinct chemical profiles, and to select the *m/z*-values that uniquely distinguish these different regions from each other.
+The goal of unsupervised analysis of mass spectrometry (MS) imaging experiments is to discover regions in the data with distinct chemical profiles, and to select the *m/z* values that uniquely distinguish these different regions from each other.
 
 Algorithmically, this means clustering the data. In imaging experiments, the resulting cluster configurations are called spatial segmentations, and the clusters are called segments.
 
@@ -33,9 +31,12 @@ In this vignette, we present an example segmentation workflow using *Cardinal*.
 
 We begin by loading the package:
 
-```{r}
+```{r library, eval=FALSE}
 library(Cardinal)
 ```
+
+
+
 
 # Segmentation of a pig fetus wholy body cross section
 
@@ -44,11 +45,10 @@ This example uses the PIGII_206 dataset: a cross section of a pig fetus captured
 First, we load the dataset from the *CardinalWorkflows* package. The data is stored in an older format, so we need to coerce it to an `MSImagingExperiment`.
 
 ```{r load-pig206}
-data(pig206, package="CardinalWorkflows")
-pig206 <- as(pig206, "MSImagingExperiment")
+pig206 <- CardinalWorkflows::exampleMSIData("pig206")
 ```
 
-The dataset contains 4,959 spectra with 10,200 *m/z*-values.
+The dataset contains 4,959 spectra with 10,200 *m/z* values.
 
 ```{r show-pig206}
 pig206
@@ -59,10 +59,11 @@ pig206
 In the optical image shown above, the brain (left), heart (center), and liver (large dark region) are clearly visible.
 
 ```{r mz-885}
-image(pig206, mz=885.5, plusminus=0.25)
+image(pig206, mz=885.5, tolerance=0.5, units="mz")
 ```
 
 The dataset has been cropped to remove the background slide pixels, leaving only the tissue section itself for analysis.
+
 
 ## Pre-processing
 
@@ -71,11 +72,11 @@ For statistical analysis, it is useful to reduce the dataset to include only the
 We calculate the mean spectrum using `summarizeFeatures()`.
 
 ```{r pig206-mean}
-pig206_mean <- summarizeFeatures(pig206, "mean")
+pig206 <- summarizeFeatures(pig206, c(Mean="mean"))
 ```
 
 ```{r plot-pig206-mean}
-plot(pig206_mean)
+plot(pig206, "Mean", xlab="m/z", ylab="Intensity")
 ```
 
 In order to make the mass spectra comparable between different pixels, it is necessary to normalize the data. We will use TIC normalization.
@@ -83,41 +84,26 @@ In order to make the mass spectra comparable between different pixels, it is nec
 Let's calculate the TIC to see how it currently varies across the dataset in the raw, unprocessed specra.
 
 ```{r pig206-tic}
-pig206_tic <- summarizePixels(pig206, c(tic="sum"))
+pig206 <- summarizePixels(pig206, c(TIC="sum"))
 ```
 
 ```{r plot-pig206-tic}
-image(pig206_tic)
+image(pig206, "TIC")
 ```
 
-To process the dataset, we will first perform peak picking on the mean spectrum to create a set of reference peaks. We will then bin the peaks in the entire dataset to this reference.
+To process the dataset, we will use `peakProcess()` to perform peak picking on a subset of the mass spectra, and then use these as a reference to summarize the peaks in every mass spectrum in the dataset.
 
-Note that peak picking on the mean spectrum is the fastest option, but may miss low-intensity peaks or peaks that only occur in a small part of the dataset. If we wanted to be more thorough, we could use a similar procedure to perform peak picking on the entire dataset (or on a random sample of many spectra) to create the set of reference peaks.
+We use `sampleSize=0.1` to indicate we want to perform peak picking on 10% of spectra to create the reference peaks. `SNR=3` indicates the signal-to-noise ratio threshold to peak detection. And `tolerance=0.5` indicates the minimum distance between peaks. (Peaks closer together than this are merged.)
 
-```{r peak-ref-pig206}
-pig206_ref <- pig206_mean %>%
-  peakPick(SNR=3) %>%
-  peakAlign(ref="mean",
-            tolerance=0.5,
-            units="mz") %>%
-  peakFilter() %>%
-  process()
-```
-
-Now we bin the rest of the dataset to the reference peaks.
-
-```{r peak-bin-pig206}
-pig206_peaks <- pig206 %>%
-  normalize(method="tic") %>%
-  peakBin(ref=mz(pig206_ref),
-          tolerance=0.5,
-          units="mz") %>%
-  process()
+```{r peak-process}
+pig206_peaks <- peakProcess(pig206, SNR=3,
+	sampleSize=0.1, tolerance=0.5, units="mz")
 
 pig206_peaks
 ```
 
-This produces a centroided dataset with 110 peaks.
+This produces a centroided dataset with 1,045 peaks.
+
 
 ## Visualization
 
@@ -130,19 +116,19 @@ Below, we plot several hand-selected peaks corresponding to major organs.
 *m/z* 187 appears highly abundant in the heart.
 
 ```{r mz-187}
-image(pig206_peaks, mz=187)
+image(pig206_peaks, mz=187.36)
 ```
 
 *m/z* 840 appears highly abundant in the brain and spinal cord.
 
 ```{r mz-840}
-image(pig206_peaks, mz=840)
+image(pig206_peaks, mz=840.43)
 ```
 
 *m/z* 537 appears highly abundant in the liver.
 
 ```{r mz-537}
-image(pig206_peaks, mz=537)
+image(pig206_peaks, mz=537.08)
 ```
 
 Rather than manually going the full dataset and hand-selecting peaks, the goal of our statistical analysis will be to automatically select the peaks that distinguish such regions (e.g., the major organs).
@@ -155,6 +141,8 @@ Below, we calculate the first 3 principal components.
 
 ```{r}
 pig206_pca <- PCA(pig206_peaks, ncomp=3)
+
+pig206_pca
 ```
 
 Next, we overlay the first 3 principal components.
@@ -162,16 +150,45 @@ Next, we overlay the first 3 principal components.
 The overlay requires some contrast enhancement to see the structures clearly. In addition, the range of the PC scores are normalized to the same range (between 0 and 1).
 
 ```{r}
-image(pig206_pca, contrast.enhance="histogram", normalize.image="linear")
+image(pig206_pca, smooth="adaptive", enhance="histogram")
 ```
 
 We can plot the loadings for the principal components as well.
 
 ```{r}
-plot(pig206_pca, lwd=2)
+plot(pig206_pca, linewidth=2)
 ```
 
-PCA can sometimes be useful for exploring a dataset. For example, here, we can see that PC3 appears to distinguish the liver, but also includes several other structures. This makes it difficult to fully utilize PCA for analysis.
+PCA can sometimes be useful for exploring a dataset. For example, here, we can see that PC3 appears to distinguish the liver, but also includes other structures. This makes it difficult to fully utilize PCA for analysis.
+
+
+### Non-negative matrix factorization (NMF)
+
+Non-negative matrix factorization (NMF) is a popular alternative to PCA. It is similar to PCA, but produces non-negative loadings, which can make it easier to interpret and more suited to spectral data. NMF is available in *Cardinal* through the `NMF()` method.
+
+Below, we calculate the first 3 NMF components.
+
+```{r}
+pig206_nmf <- NMF(pig206_peaks, ncomp=3, niter=30)
+
+pig206_nmf
+```
+
+Next, we overlay the first 3 principal components.
+
+The overlay requires some contrast enhancement to see the structures clearly. In addition, the range of the PC scores are normalized to the same range (between 0 and 1).
+
+```{r}
+image(pig206_nmf, smooth="adaptive", enhance="histogram")
+```
+
+We can plot the loadings for the principal components as well.
+
+```{r}
+plot(pig206_nmf, linewidth=2)
+```
+
+NMF seems to distinguish the morphology better than PCA in this case.
 
 
 ## Segmentation with spatial shrunken centroids (SSC)
@@ -180,121 +197,138 @@ To segment the dataset and automatically select peaks that distinguish each regi
 
 Important parameters to this method include:
 
-- `method` The type of spatial weights to use:
-    
-    + *"gaussian"* weights use a simple Gaussian smoothing kernel
-    
-    + *"adaptive"* weights use an adaptive kernel that sometimes preserve edges better
+- `weights` The type of spatial weights to use:
+	
+	+ *"gaussian"* weights use a simple Gaussian smoothing kernel
+	
+	+ *"adaptive"* weights use an adaptive kernel that sometimes preserve edges better
 
 - `r` The neighborhood smoothing radius; this should be selected based on the size and granularity of the spatial regions in your dataset
 
-- `s` The shrinkage or sparsity parameter; the higher this number, the fewer peaks will be used to determine the final segmentation.
-
 - `k` The maximum number of segments to try; empty segments are dropped, so the resulting segmentation may use fewer than this number.
 
-It is typically best to set `k` relatively high and let the algorithm drop empty segments. You typically also want to try a wide range of sparsity with the `s` parameter.
+- `s` The shrinkage or sparsity parameter; the higher this number, the fewer peaks will be used to determine the final segmentation.
+
+It can be usefel to set `k` relatively high and let the algorithm drop empty segments. You typically want to try a wide range of sparsity with the `s` parameter.
 
 ```{r ssc}
 set.seed(1)
-pig206_ssc <- spatialShrunkenCentroids(pig206_peaks, method="adaptive",
-                                       r=2, s=c(0,5,10,15,20,25), k=10)
+pig206_ssc <- spatialShrunkenCentroids(pig206_peaks,
+	weights="adaptive", r=2, k=8, s=2^(1:6))
+
+pig206_ssc
 ```
 
-```{r show-ssc}
-summary(pig206_ssc)
-```
+This produces a `ResultsList` of the 6 fitted models.
 
-As shown in the summary, the resulting number of segments typically decreases as `s` increases. This is because fewer peaks are used to determine the segmentation.
+As shown in the metadata columns, the number of resulting segments (`clusters`) is fewer for higher values of `s`. This is because fewer peaks are used to determine the segmentation.
 
-First, non-informative peaks are removed, but as `s` increases meaningful peaks may be removed as well. The most interesting and useful segmentations tend to be the ones with the highest value of `s` just before the resulting number of segments decreases too much.
+Larger values of `s` will remove non-informative peaks, but very large values of `s` may remove meaningful peaks too. For very large values of `s`, morphological structures will begin to disappear from the segmentation. The most interesting and useful segmentations tend to be the ones with the highest value of `s` that still show meaningful morphology.
+
+We can also look at the `AIC` and `BIC` values to help guide our choice of what segmentation to explore further. Smaller values are better, but small differences become less meaningful.
+
+In this case, the last 3 models (`s=16`, `s=32`, and `s=64`) all seem to be much better from the previous models, but are not significantly different from each other. However, the models for `s=16` and `s=32` support 7-8 segments, while the model for `s=64` only supports 3 segments.
+
 
 ### Plotting the segmentation
 
-Let's plot the resulting segmentations for s = 10, 15, 20, 25.
+Let's plot the first 4 segmentations.
 
 ```{r ssc-image-multi}
-image(pig206_ssc, model=list(s=c(10,15,20,25)))
+image(pig206_ssc, i=3:6)
 ```
 
-It is useful to see how the segmentation changes as fewer peaks are used and the number of segments decreases. Noisy, less-meaningful segments tend to be removed first, so we want to explore the segmentation with the highest value of `s` that still captures most of the regions we would expect to see.
+It is useful to see how the segmentation changes as fewer peaks are used and the number of segments decreases. Noisy, less-meaningful segments tend to be removed first, so we want to explore the segmentation with the highest value of `s` that still captures the morphology we would expect to see.
 
-```{r ssc-image-s20}
-image(pig206_ssc, model=list(s=20))
+```{r ssc-image-best}
+pig206_ssc1 <- pig206_ssc[[5]]
+
+image(pig206_ssc1)
 ```
 
-Here, we can see the heart, brain, and liver distinguished as segments 1, 5, and 6.
+Note that the translucent colors that don't appear to belong to any segment indicate areas of low probability (i.e., high uncertainty in the segmentation).
+
+We can plot the segment assignments instead of the probabilities to see the exact segmentation.
+
+```{r ssc-image-best}
+image(pig206_ssc1, type="class")
+```
+
+Here, we can see the heart, brain, and liver distinguished as segments 2, 4, and 5.
+
 
 ### Plotting the (shrunken) mean spectra
 
 Plotting the shrunken centroids is analogous to plotting the mean spectrum of each segment.
 
 ```{r ssc-centers}
-plot(pig206_ssc, model=list(s=20), lwd=2)
+plot(pig206_ssc1, type="centers", linewidth=2)
 ```
 
-Let's break out the centroids for the heart, brain, and liver segments.
+Let's break out the centroids for the heart, brain, and liver segments (2, 4, and 5).
 
 ```{r ssc-centers-2}
-cols <- discrete.colors(6)
-setup.layout(c(3,1))
-plot(pig206_ssc, model=list(s=20), column=1, col=cols[1], lwd=2, layout=NULL)
-plot(pig206_ssc, model=list(s=20), column=5, col=cols[5], lwd=2, layout=NULL)
-plot(pig206_ssc, model=list(s=20), column=6, col=cols[6], lwd=2, layout=NULL)
+plot(pig206_ssc1, type="centers", linewidth=2,
+	select=c(2,4,5), superpose=FALSE, layout=c(1,3))
 ```
 
-Some differences are visible, but it can be difficult to tell exactly which peaks are changing between different segments based on the mean spectra alone.
+Some differences are visible, but it can be difficult to tell exactly which peaks are changing between different segments based on the (shrunken) mean spectra alone.
+
 
 ### Plotting and interpretting t-statistics of the *m/z* values
 
 Plotting the t-statistics tells us exactly the relationship between each segment's centroid and the global mean spectrum. The t-statistics are the difference between a segment's centroid and the global mean, divided by a standard error.
 
-Positive t-statistics indicate that peak is systematically higher in that segment as compared to the global mean spectrum.
+Positive t-statistics indicate that peak is systematically higher intensity in that segment relative to the (global) mean spectrum.
 
-Negative t-statistics indicate that peak is systematically lower in that segment as compared to the global mean spectrum.
+Negative t-statistics indicate that peak is systematically lower intensity in that segment relative to the (global) mean spectrum.
 
 Spatial shrunken centroids works by shrinking these t-statistics toward 0 by `s`, and using the new t-statistics to recompute the segment centroids. The effect is that peaks that are not very different between a specific segment and the global mean are effectively eliminated from the segmentation.
 
 ```{r ssc-statistic}
-plot(pig206_ssc, model=list(s=20), values="statistic", lwd=2)
+plot(pig206_ssc1, type="statistic", linewidth=2)
 ```
 
 If we break out the t-statistics for the heart, brain, and liver segments we can learn something interesting.
 
 ```{r ssc-statistic-2}
-setup.layout(c(3,1))
-plot(pig206_ssc, model=list(s=20), values="statistic",
-     column=1, col=cols[1], lwd=2, layout=NULL)
-plot(pig206_ssc, model=list(s=20), values="statistic",
-     column=5, col=cols[5], lwd=2, layout=NULL)
-plot(pig206_ssc, model=list(s=20), values="statistic",
-     column=6, col=cols[6], lwd=2, layout=NULL)
+plot(pig206_ssc1, type="statistic", linewidth=2,
+	select=c(2,4,5), superpose=FALSE, layout=c(1,3))
 ```
 
-Very few peaks distinguish the heart, while many more distinguish the brain and liver.
+Very few peaks distinguish the heart (segment 2), while many more distinguish the brain and liver (segments 4 and 5).
 
-### Retrieving the top *m/z*-values
+
+### Retrieving the top *m/z* values
 
 Use the `topFeatures()` method to extract the *m/z* values of the peaks that most distinguish each segment, ranked by t-statistic.
+
+```{r top-ssc}
+pig206_top <- topFeatures(pig206_ssc1)
+```
 
 Peaks associated with the heart:
 
 ```{r top-heart}
-topFeatures(pig206_ssc, model=list(s=20), class==1)
+subset(pig206_top, class==2 & statistic > 0)
 ```
 
 Peaks associated with the brain:
 
 ```{r top-brain}
-topFeatures(pig206_ssc, model=list(s=20), class==5)
+subset(pig206_top, class==4 & statistic > 0)
 ```
 
 Peaks associated with the liver:
 
 ```{r top-liver}
-topFeatures(pig206_ssc, model=list(s=20), class==6)
+subset(pig206_top, class==5 & statistic > 0)
 ```
 
 The top *m/z* values for each segment match up well with the hand-selected peaks.
+
+
+
 
 # Segmentation of a cardinal painting
 
@@ -303,8 +337,7 @@ It can be difficult to evaluate unsupervised methods (like segmentation) on data
 In this section, we use an MS image of a painting, where we know the ground truth.
 
 ```{r load-cardinal}
-data(cardinal, package="CardinalWorkflows")
-cardinal <- as(cardinal, "MSImagingExperiment")
+cardinal <- CardinalWorkflows::exampleMSIData("cardinal")
 ```
 
 ![Cardinal painting](cardinal-optical.png)
@@ -319,77 +352,80 @@ The dataset includes 12,600 spectra with 10,800 *m/z* values.
 
 ## Pre-processing
 
-First, we will pre-process the dataset as before, by applying peak picking to the mean spectrum.
+We will begin by visualizing the mean spectrum as before.
 
 ```{r cardinal-mean}
-cardinal_mean <- summarizeFeatures(cardinal, "mean")
+cardinal <- summarizeFeatures(cardinal, c(Mean="mean"))
 ```
 
-```{r peak-ref-cardinal}
-cardinal_ref <- cardinal_mean %>%
-  peakPick(SNR=3) %>%
-  peakAlign(ref="mean",
-            tolerance=0.5,
-            units="mz") %>%
-  peakFilter() %>%
-  process()
+```{r plot-cardinal-mean}
+plot(cardinal, "Mean", xlab="m/z", ylab="Intensity")
 ```
 
-```{r peak-bin-cardinal}
-cardinal_peaks <- cardinal %>%
-  normalize(method="tic") %>%
-  peakBin(ref=mz(cardinal_ref),
-          tolerance=0.5,
-          units="mz") %>%
-  process()
+And the total ion current.
+
+```{r cardinal-tic}
+cardinal <- summarizePixels(cardinal, c(TIC="sum"))
+```
+
+```{r plot-cardinal-tic}
+image(cardinal, "TIC")
+```
+
+We will pre-process the dataset as before, by applying peak picking to 10% of the spectra and then summarizing these peaks for every spectrum.
+
+```{r cardinal-process}
+cardinal_peaks <- peakProcess(cardinal, SNR=3,
+	sampleSize=0.1, tolerance=0.5, units="mz")
 
 cardinal_peaks
 ```
 
-This results in a centroided dataset with 106 peaks.
+This results in a centroided dataset with 2,561 peaks.
 
-## Segmetation with SSC
+## Segmentation with SSC
 
 Now we use spatial shrunken centroids to segment the dataset.
 
 ```{r ssc-cardinal}
 set.seed(1)
-cardinal_ssc <- spatialShrunkenCentroids(cardinal_peaks, method="adaptive",
-                                       r=2, s=c(10,20,30,40), k=10)
-```
+cardinal_ssc <- spatialShrunkenCentroids(cardinal_peaks,
+	weights="adaptive", r=2, k=8, s=2^(1:4))
 
-```{r show-ssc-cardinal}
-summary(cardinal_ssc)
+cardinal_ssc
 ```
 
 ```{r ssc-cardinal-multi}
-image(cardinal_ssc)
+image(cardinal_ssc, i=1:4)
 ```
-
-We can see that with s = 10 and s = 20, two segmments are capturing an unwanted background gradient. At s = 30, this background gradient is eliminated.
 
 Now we can use the segmentation to re-construct the original painting.
 
 ```{r ssc-cardinal-image}
-image(cardinal_ssc, model=list(s=40),
-      col=c("1"=NA, "2"="gray", "3"="black", "4"="firebrick",
-            "5"="brown", "6"="darkred", "7"="red"))
+cardinal_ssc1 <- cardinal_ssc[[4]]
+
+pal <- c("1"=NA, "2"=NA, "3"="darkred", "4"="firebrick",
+	"5"="brown", "6"="red", "7"="black")
+
+image(cardinal_ssc1, col=pal)
 ```
 
 Let's find the *m/z* values associated with the cardinal's body.
 
 ```{r top-body}
-topFeatures(cardinal_ssc, model=list(s=40), class==7)
+cardinal_top <- topFeatures(cardinal_ssc1)
 
-image(cardinal, mz=207)
+subset(cardinal_top, class==6)
+
+image(cardinal_peaks, mz=207.05, enhance="adaptive")
 ```
 
 And let's find the *m/z* values associated with the "DESI-MS" text.
 
 ```{r top-text}
-topFeatures(cardinal_ssc, model=list(s=40), class==3)
+subset(cardinal_top, class==5)
 
-image(cardinal, mz=649)
+image(cardinal_peaks, mz=648.79, enhance="adaptive")
 ```
 
 

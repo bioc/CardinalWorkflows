@@ -1,7 +1,7 @@
 ---
 title: "Classification of MS imaging experiments with Cardinal"
 author: "Kylie Ariel Bemis"
-date: "Revised: April 9, 2024"
+date: "Revised: April 11, 2024"
 output:
   BiocStyle::html_document:
   toc: true
@@ -17,7 +17,7 @@ BiocStyle::markdown()
 ```
 
 ```{r setup, echo=FALSE, message=FALSE}
-library(CardinalWorkflows)
+library(Cardinal)
 setCardinalVerbose(FALSE)
 ```
 
@@ -31,9 +31,12 @@ In this vignette, we present an example classification workflow using *Cardinal*
 
 We begin by loading the package:
 
-```{r}
+```{r library, eval=FALSE}
 library(Cardinal)
 ```
+
+
+
 
 # Classification of a renal cell carcinoma (RCC) cancer dataset
 
@@ -52,8 +55,7 @@ In this RCC dataset, we expect that normal tissue and cancerous tissue will have
 First, we load the dataset from the *CardinalWorkflows* package. The data is stored in an older format, so we need to coerce it to an `MSImagingExperiment`.
 
 ```{r load-rcc}
-data(rcc, package="CardinalWorkflows")
-rcc <- as(rcc, "MSImagingExperiment")
+rcc <- CardinalWorkflows::exampleMSIData("rcc")
 ```
 
 The dataset contains 16,000 spectra with 10,200 *m/z*-values.
@@ -62,53 +64,51 @@ The dataset contains 16,000 spectra with 10,200 *m/z*-values.
 rcc
 ```
 
+We can visualize the diagnoses:
+
+```{r show-rcc}
+image(rcc, "diagnosis", layout=c(2,4), free="xy", col=dpal("Set1"))
+```
+
+As can be seen above, each matched pair of tissues belonging to the same subject are on the same slide (i.e., the same run). Note also the the cancer tissue is on the left and the normal tissue is on the right on each slide.
+
+
 ## Pre-processing
 
-First, let's subset the dataset to include only the pixels where we have manually selected the tissue regions and labeled the diagnosis.
+First, let's visualize the total ion current.
 
-Then, we normalize the mass spectra to a common TIC.
-
-```{r normalize-rcc}
-rcc <- rcc %>%
-  subsetPixels(!is.na(diagnosis)) %>%
-  normalize(method="tic") %>%
-  process()
-rcc
+```{r rcc-tic}
+rcc <- summarizePixels(rcc, stat=c(TIC="sum"))
 ```
 
-To process the dataset, we will first perform peak picking on the mean spectrum to create a set of reference peaks. We will then bin the peaks in the entire dataset to this reference.
-
-```{r rcc-mean}
-rcc_mean <- summarizeFeatures(rcc, "mean")
+```{r plot-cardinal-tic}
+image(rcc, "TIC", layout=c(2,4), free="xy")
 ```
 
-```{r rcc-peak-process}
-rcc_ref <- rcc_mean %>%
-  peakPick(SNR=3) %>%
-  peakAlign(ref="mean",
-            tolerance=0.5,
-            units="mz") %>%
-  peakFilter() %>%
-  process()
-```
+Clearly there is pixel-to-pixel variation in in the total ion current.
 
-Now we bin the rest of the dataset to the reference peaks.
+We will normalize the TIC and perform peak picking on all spectra.
 
-```{r rcc-peak-bin}
-rcc_peaks <- rcc %>%
-  peakBin(ref=mz(rcc_ref),
-          tolerance=0.5,
-          units="mz") %>%
-  process()
+```{r rcc-peak-pick}
+rcc_peaks <- rcc |>
+	normalize(method="tic") |>
+	peakProcess(SNR=3, filterFreq=FALSE,
+		tolerance=0.5, units="mz")
 
 rcc_peaks
 ```
 
-This produces a centroided dataset with 103 peaks.
+This produces a centroided dataset with 753 peaks.
 
-Note that this centroided dataset will be useful for our exploratory analysis and for fitting the final classification model, but it cannot be used for cross-validation. This is because the mean spectrum was calculated from the whole dataset, so if we then used it for cross-validation, each CV fold would include some pre-processing steps that depended on the test set.
+Note that we have performed peak picking on all spectra, rather than peak picking on a subset and then summarizing (as we did in the "Segmentation" workflow). This is so we have independent peaks for every spectrum that were not selected based on information from any other spectra. Therefore, we can use these peaks in cross-validation (after re-aligning them independently within each training set).
 
-Pre-processing for cross-validation will require a different strategy.
+We will also create a subset of the dataset that excludes the background pixels.
+
+```{r rcc-subset}
+rcc_nobg <- subsetPixels(rcc_peaks, !is.na(diagnosis))
+rcc_nobg
+```
+
 
 ## Visualization
 
@@ -118,12 +118,26 @@ Before proceeding with the statistical analysis, we'll first perform some and ex
 
 Let's plot the images for *m/z* 810, which appears abundant in both normal and tumor tissue, and doesn't seem to be very predictive.
 
-```{r mz-810, fig.height=10}
-image(rcc_peaks, mz=810, layout=c(4,2),
-      contrast.enhance="suppress", normalize.image="linear")
+```{r mz-810}
+image(rcc_peaks, mz=810.36, layout=c(2,4), free="xy",
+	smooth="bilateral", enhance="histogram", scale=TRUE)
 ```
 
-As can be seen above, each matched pair of tissues belonging to the same subject are on the same slide (and therefore belong to the same run). Note also the the cancer tissue is on the left and the normal tissue is on the right on each slide.
+We will also visualize *m/z* 855, which appears slightly more abundant in the tumor tissue (left).
+
+```{r mz-886}
+image(rcc_peaks, mz=886.43, layout=c(2,4), free="xy",
+	smooth="bilateral", enhance="histogram", scale=TRUE)
+```
+
+Lastly, we will also visualize *m/z* 215, which appears more abundant in the normal tissue (right).
+
+```{r mz-215}
+image(rcc_peaks, mz=215.24, layout=c(2,4), free="xy",
+	smooth="bilateral", enhance="histogram", scale=TRUE)
+```
+
+We can also note that runs "UH0505_12" and "UH9905_18" have very heterogenous tumor tissues, with what appear to be large sections of normal tissue.
 
 
 
@@ -134,32 +148,61 @@ Principal component analysis (PCA) is an unsupervised method for exploring a dat
 Below, we calculate the first 2 principal components. Note that PCA does not use any information about the diagnosis.
 
 ```{r rcc-pca}
-rcc_pca <- PCA(rcc_peaks, ncomp=2)
+rcc_pca <- PCA(rcc_nobg, ncomp=2)
 ```
 
 We can overlay the PC scores of the first 2 principal components. It doesn't appear that either component distinguishes the diagnoses.
 
-```{r pca-image, fig.height=10}
-image(rcc_pca, layout=c(4,2), normalize.image="linear")
+```{r pca-image}
+image(rcc_pca, type="x", layout=c(2,4), free="xy", scale=TRUE)
 ```
 
-We can plot the scores of the first 2 components against each other to see how the separate the diagnoses (or don't, in this case).
+We can plot the scores of the first 2 components against each other to see how they separate the diagnoses (or don't, in this case).
 
-```{r pca-scores}
-pc_scores <- DataFrame(resultData(rcc_pca, 1, "scores"))
+```{r pca-scores-diagnosis}
+plot(rcc_pca, type="x", groups=rcc_nobg$diagnosis, shape=20)
 ```
 
 It doesn't appear that PCA separates cancer versus normal tissue. At least, not the first 2 components.
 
-```{r pca-scoreplot-1}
-plot(pc_scores, PC1 ~ PC2, groups=rcc$diagnosis)
-```
-
 PCA is also a useful way to visualize how much each run clusters together. A large amount of variation in the data tends to be variation between experimental runs. This is why it's useful to have matched pairs on the same slide.
 
-```{r pca-scoreplot-2}
-plot(pc_scores, PC1 ~ PC2, groups=run(rcc))
+```{r pca-scores-run}
+plot(rcc_pca, type="x", groups=run(rcc_nobg), shape=20)
 ```
+
+
+### Non-negative matrix factorization (NMF)
+
+Non-negative matrix factorization (NMF) is a popular alternative to PCA. It is similar to PCA, but produces non-negative loadings, which can make it easier to interpret and more suited to spectral data. NMF is available in *Cardinal* through the `NMF()` method.
+
+Below, we calculate the first 2 NMF components. Like PCA, NMF does not use any information about the diagnosis.
+
+```{r rcc-nmf}
+rcc_nmf <- NMF(rcc_nobg, ncomp=2, niter=5)
+```
+
+We can overlay the scores of the first 2 NMF components. It looks like the 1st component correlates to tumor and the 2nd component correlates to normal.
+
+```{r nmf-image}
+image(rcc_nmf, type="x", layout=c(2,4), free="xy", scale=TRUE)
+```
+
+We can plot the scores of the first 2 components against each other to see how they separate the diagnoses (or don't, in this case).
+
+```{r pca-scores-diagnosis}
+plot(rcc_nmf, type="x", groups=rcc_nobg$diagnosis, shape=20)
+```
+
+It looks like there is still quite a lot of overlap between tumor and normal in NMF components.
+
+Lastly, we'll also visualize how the NMF components relate to the runs.
+
+```{r pca-scores-run}
+plot(rcc_nmf, type="x", groups=run(rcc_nobg), shape=20)
+```
+
+
 
 
 
@@ -169,11 +212,11 @@ To classify the dataset and automatically select peaks that distinguish each cla
 
 Important parameters to this method include:
 
-- `method` The type of spatial weights to use:
-    
-    + *"gaussian"* weights use a simple Gaussian smoothing kernel
-    
-    + *"adaptive"* weights use an adaptive kernel that sometimes preserve edges better
+- `weights` The type of spatial weights to use:
+	
+	+ *"gaussian"* weights use a simple Gaussian smoothing kernel
+	
+	+ *"adaptive"* weights use an adaptive kernel that sometimes preserve edges better
 
 - `r` The neighborhood smoothing radius; this should be selected based on the size and granularity of the spatial regions in your dataset
 
@@ -182,62 +225,54 @@ Important parameters to this method include:
 
 ### Cross-validation with SSC
 
-In order to avoid over-fitting due to the pre-processing, each CV fold will be processed separately. For each CV fold, peak picking will be performed on the mean spectrum of the training set, and the test set will be binned to the peaks of the training set.
+In order to avoid over-fitting due to the pre-processing, spectra from each CV fold must be processed independently. We have already performed peak picking independently on every spectrum.
 
-We use the `crossValidate()` method to perform cross-validation, and we treat each run as a separate fold.
+Therefore, for each CV fold, we will re-align the peaks in the pooled training set (so the alignment does not use any peaks from the test set), and then re-align the peaks in the test set to the aligned peaks in the training set.
 
-```{r rcc-cv, message=FALSE}
-rcc_ssc_cv <- crossValidate(rcc, rcc$diagnosis,
-              .fun="spatialShrunkenCentroids",
-              r=1, s=c(0,3,6,9,12,15),
-              .fold=run(rcc), .process=TRUE,
-              .processControl=list(SNR=3,
-                                   tolerance=0.5,
-                                   units="mz"))
+We use the `crossValidate()` method to perform the processing and cross-validation, and we treat each run as a separate fold.
 
-summary(rcc_ssc_cv)
+```{r rcc-cv}
+rcc_ssc_cv <- crossValidate(spatialShrunkenCentroids,
+	x=rcc_nobg, y=rcc_nobg$diagnosis, r=1, s=2^(1:5),
+	folds=run(rcc_nobg))
+
+rcc_ssc_cv
 ```
 
-It appears s = 9 produces the best accuracy.
+It appears `s=16` produces the best balanced accuracy of ~93% (reported above as the macro-averaged recall).
 
-```{r rcc-cv-plot}
-plot(summary(rcc_ssc_cv), Accuracy ~ s, type='b')
-abline(v=9, lty=2, col="red")
-```
-
-Having selected the parameters, we can re-fit the model on the full dataset in order to interpret it.
-
-
-```{r rcc-ssc}
-rcc_ssc <- spatialShrunkenCentroids(rcc_peaks, rcc$diagnosis, r=1, s=9)
-
-summary(rcc_ssc)
-```
-
-We should ignore the accuracy here though, as it is too optimistic.
 
 
 ### Plotting the classified images
 
-Now we plot the classified images. Opacity is used to reflect the probability of class membership.
+Now we plot the classified images from each of the cross-validation models.
 
-```{r rcc-ssc-image, fig.height=10}
-image(rcc_ssc, layout=c(4,2))
+```{r rcc-ssc-image}
+image(rcc_ssc_cv, i=4, layout=c(2,4), free="xy", col=dpal("Set1"))
 ```
+
+Opacity is used to reflect the probability of class membership. The classifier appears to do a good job distinguishing between tumor and normal tissue.
+
 
 ### Plotting the (shrunken) mean spectra
 
-Below, we plot the centroids for each class separately.
+To interpret the model's parameters, we can re-fit a the best model to the whole dataset.
 
-```{r rcc-ssc-mean}
-setup.layout(c(2,1))
-plot(rcc_ssc, column=1, col=discrete.colors(2)[1],
-     lwd=2, layout=NULL)
-plot(rcc_ssc, column=2, col=discrete.colors(2)[2],
-     lwd=2, layout=NULL)
+```{r rcc-ssc-best}
+rcc_ssc1 <- spatialShrunkenCentroids(rcc_nobg,
+	y=rcc_nobg$diagnosis, r=1, s=16)
+
+rcc_ssc1
 ```
 
-Although some differences are obvious, it is difficult to tell just from the mean spectra what peaks distinguish each diagnosis.
+Now, we plot the centroids for each class separately.
+
+```{r rcc-ssc-mean}
+plot(rcc_ssc1, type="centers", linewidth=2)
+```
+
+It is difficult to tell just from the mean spectra what peaks distinguish each diagnosis.
+
 
 ### Plotting and interpretting t-statistics of the *m/z* values
 
@@ -250,33 +285,40 @@ Negative t-statistics indicate that peak is systematically lower in that class a
 Due to the shrinkage parameter `s`, unimportant peaks will have a t-statistic of 0 and will effectively have no effect on the classification.
 
 ```{r rcc-statistic}
-plot(rcc_ssc, values="statistic", lwd=2)
+plot(rcc_ssc1, type="statistic", linewidth=2)
 ```
 
-This lets us clearly see which peaks are distinguishing cancer versus normal tissue.
+This lets us clearly see which peaks are distinguishing tumor versus normal tissue.
+
 
 ### Retrieving the top *m/z*-values
 
 We can use  the `topFeatures()` method to retrive the *m/z* values associated with each class.
 
-Let's find the *m/z* values associated with cancer tissue.
-
-```{r top-cancer}
-topFeatures(rcc_ssc, class=="cancer")
+```{r top-features}
+rcc_top <- topFeatures(rcc_ssc1)
 ```
 
-```{r mz-885, fig.height=10}
-image(rcc_peaks, mz=885, contrast.enhance="suppress", layout=c(4,2))
+Let's find the *m/z* values associated with tumor tissue.
+
+```{r top-cancer}
+subset(rcc_top, class=="cancer")
+```
+
+```{r top-mz-886}
+image(rcc_peaks, mz=886.4, layout=c(2,4), free="xy",
+	smooth="bilateral", enhance="histogram", scale=TRUE)
 ```
 
 And let's find the *m/z* values associated with normal tissue.
 
 ```{r top-normal}
-topFeatures(rcc_ssc, class=="normal")
+subset(rcc_top, class=="normal")
 ```
 
-```{r mz-215, fig.height=10}
-image(rcc_peaks, mz=215, contrast.enhance="suppress", layout=c(4,2))
+```{r top-mz-215, fig.height=10}
+image(rcc_peaks, mz=215.24, layout=c(2,4), free="xy",
+	smooth="bilateral", enhance="histogram", scale=TRUE)
 ```
 
 

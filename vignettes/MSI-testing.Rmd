@@ -1,7 +1,7 @@
 ---
 title: "Class comparison for MSI experiments with Cardinal"
-author: "Dan Guo"
-date: "Revised: April 21, 2020"
+author: "Dan Guo and Kylie Bemis"
+date: "Revised: April 12, 2024"
 output:
   BiocStyle::html_document:
   toc: true
@@ -17,7 +17,7 @@ BiocStyle::markdown()
 ```
 
 ```{r setup, echo=FALSE, message=FALSE}
-library(CardinalWorkflows)
+library(Cardinal)
 setCardinalVerbose(FALSE)
 ```
 
@@ -33,7 +33,7 @@ In this vignette, we present an example class comparison workflow using *Cardina
 
 We begin by loading the package:
 
-```{r library}
+```{r library, eval=FALSE}
 library(Cardinal)
 ```
 
@@ -51,11 +51,10 @@ UH9812_03 | UH9905_18 | UH9911_05 | UH9912_01
 
 For the RCC cancer dataset, the goal is to find m/z features differentially abundant between normal and cancer tissue.
 
-First, we load the dataset from the *CardinalWorkflows* package. The data is stored in an older format, so we need to coerce it to an `MSImagingExperiment`.
+First, we load the dataset from the *CardinalWorkflows* package using `exampleMSIData()`.
 
 ```{r load-rcc}
-data(rcc, package="CardinalWorkflows")
-rcc <- as(rcc, "MSImagingExperiment")
+rcc <- CardinalWorkflows::exampleMSIData("rcc")
 ```
 
 The dataset contains 16,000 spectra with 10,200 *m/z*-values.
@@ -64,59 +63,66 @@ The dataset contains 16,000 spectra with 10,200 *m/z*-values.
 rcc
 ```
 
+We can visualize the diagnoses:
+
+```{r show-rcc}
+image(rcc, "diagnosis", layout=c(2,4), free="xy", col=dpal("Set1"))
+```
+
+As can be seen above, each matched pair of tissues belonging to the same subject are on the same slide (i.e., the same run). Note also the the cancer tissue is on the left and the normal tissue is on the right on each slide.
+
 ## Pre-processing
 
-Before fitting any statistical model, pre-processing is necessary to remove noise and the number of *m/z* values.
+First, let's visualize the total ion current.
 
-To process the dataset, we will first perform peak picking on the mean spectrum to create a set of reference peaks. We will then bin the peaks in the entire dataset to this reference.
-
-```{r rcc-mean}
-rcc_mean <- summarizeFeatures(rcc, "mean")
+```{r rcc-tic}
+rcc <- summarizePixels(rcc, stat=c(TIC="sum"))
 ```
 
-```{r rcc-peak-process}
-rcc_ref <- rcc_mean %>%
-  peakPick(SNR=3) %>%
-  peakAlign(ref="mean",
-            tolerance=0.5,
-            units="mz") %>%
-  peakFilter() %>%
-  process()
+```{r plot-cardinal-tic}
+image(rcc, "TIC", layout=c(2,4), free="xy")
 ```
 
-Now we normalize and bin the rest of the dataset to the reference peaks.
+Clearly there is pixel-to-pixel variation in in the total ion current.
 
-```{r rcc-peak-bin}
-rcc_peaks <- rcc %>%
-  normalize(method="tic") %>%
-  peakBin(ref=mz(rcc_ref),
-          tolerance=0.5,
-          units="mz") %>%
-  process()
+We will normalize the TIC, perform peak picking on a sample of 10% of all mass spectra to create a set of reference peaks, and then summarize these reference peaks in every spectrum.
+
+```{r rcc-peak-pick}
+rcc_peaks <- rcc |>
+	normalize(method="tic") |>
+	peakProcess(SNR=3, sampleSize=0.1, filterFreq=0.2,
+		tolerance=0.5, units="mz")
 
 rcc_peaks
 ```
 
-This produces a centroided dataset with 82 peaks.
-
 Rather than rely on the manual region-of-interest selection, we will rely on the fact that cancer tissue is on the left and the normal tissue is on the right on each slide.
 
 ```{r rcc-split}
-xcutoff<-c(35, 23, 28, 39, 29, 28, 44, 32)
+x_threshold <- c(35, 23, 28, 39, 29, 28, 46, 32)
 
-rcc_peaks$rough_diagnosis <- factor("normal", level=c("cancer", "normal"))
+rcc_peaks$rough_diagnosis <- factor("normal", levels=c("cancer", "normal"))
 
-for ( i in 1:nlevels(run(rcc_peaks)) ) {
-  cur_run <- run(rcc_peaks) == runNames(rcc_peaks)[i]
-  pData(rcc_peaks)$rough_diagnosis[cur_run & coord(rcc_peaks)$x < xcutoff[i]] <- "cancer"
+for ( i in seq_len(nrun(rcc_peaks)) ) {
+	irun <- run(rcc_peaks) == runNames(rcc_peaks)[i]
+	j <- irun & coord(rcc_peaks)$x < x_threshold[i]
+	pData(rcc_peaks)$rough_diagnosis[j] <- "cancer"
 }
 
-rcc_peaks$groups <- interaction(run(rcc_peaks), rcc_peaks$rough_diagnosis)
+rcc_peaks$samples <- interaction(run(rcc_peaks), rcc_peaks$rough_diagnosis)
 ```
 
-```{r rcc-check, fig.height=10}
-image(rcc_peaks, mz=810, groups=rough_diagnosis,
-      contrast.enhance="histogram", layout=c(4,2))
+We can plot the split to double-check that it is correct.
+
+```{r rcc-check}
+rcc_peaks$cancer <- ifelse(rcc_peaks$rough_diagnosis=="cancer",
+	rcc_peaks$TIC, 0)
+rcc_peaks$normal <- ifelse(rcc_peaks$rough_diagnosis=="normal",
+	rcc_peaks$TIC, 0)
+
+image(rcc_peaks, c("cancer", "normal"), superpose=TRUE,
+	layout=c(2,4), free="xy", col=dpal("Set1"),
+	enhance="histogram", scale=TRUE)
 ```
 
 
@@ -127,45 +133,53 @@ In order to reduce the size of the dataset further (because the computation we a
 This means filtering our peaks based on a summary statistic unrelated to the condition. We will use the variance.
 
 ```{r rcc-var}
-rcc_var <- summarizeFeatures(rcc_peaks, "var", as="DataFrame")
+rcc_peaks <- summarizeFeatures(rcc_peaks, stat=c(Variance="var"))
 
-plot(rcc_var, var ~ mz, main="variance")
+plot(rcc_peaks, "Variance", xlab="m/z", ylab="Intensity")
 ```
 
 Now we keep only the peaks above the top 80% quantile of variance among peaks.
 
 ```{r rcc-filter}
-rcc_peaks2 <- rcc_peaks[rcc_var$var >= quantile(rcc_var$var, 0.8),]
+rcc_peaks <- subsetFeatures(rcc_peaks, Variance >= quantile(Variance, 0.8))
+
+rcc_peaks
 ```
+
+This reduces the dataset to only 54 peaks.
+
 
 ### Segmentation with spatial Dirichlet Gaussian mixture model (DGMM)
 
-Spatial-DGMM performs peak-specific segmentation. It detects peak-specific tissue segments with homogeneous spatial composition. It can estimate the number of segments and the mean and variance of each segment.
+Spatial-DGMM performs spatial segmentation on every peak in the dataset, and estimates the mean and variance of the segments.
 
-This gives us a useful summary of the spatial distribution of each peak.
-
-```{r dgmm1}
-set.seed(1)
-rcc_dgmm1 <- spatialDGMM(rcc_peaks2[16,], r=1, k=4, groups=1)
-
-summary(rcc_dgmm1)
-```
-
-```{r dgmm1-plot, fig.height=10}
-image(rcc_dgmm1, layout=c(4,2))
-```
-
-This is useful because we can use it to automatically detect segments to compare for statistical testing (e.g., "cancer" vs "normal" tissue). However, to do this without bias, we must make sure the segmentation is performed independently for each sample.
+This is useful because we can use it to automatically detect segments to compare for statistical testing (e.g., "cancer" vs "normal" tissue). However, to do this in a way that doesn't bias downstream statistical testing, we must make sure the segmentation is performed independently for each sample.
 
 ```{r dgmm}
 set.seed(1)
-rcc_dgmm <- spatialDGMM(rcc_peaks2, r=1, k=4, groups=rcc_peaks2$groups)
+rcc_dgmm <- spatialDGMM(rcc_peaks, r=1, k=3, groups=rcc_peaks$samples)
 
-summary(rcc_dgmm)
+rcc_dgmm
 ```
 
+We can see from the estimated parameters above that each sample was segmented independently and have their own parameter estimates.
 
-## Visualization
+After segmenting the images for every peak, the segments are ranked according to their mean intensities. We can then visualize their ranks.
+
+```{r dgmm-image}
+image(rcc_dgmm, i=2, layout=c(2,4), free="xy")
+```
+
+We can also plot the estimated parameters for each segment for a peak.
+
+```{r dgmm-plot}
+plot(rcc_dgmm, i=2)
+```
+
+Each curve shows the estimated distribution for each segment (of 3) and each sample (of 16).
+
+
+
 
 ## Class comparison with means-based testing
 
@@ -173,24 +187,25 @@ As introduced earlier, statistical testing is performed to find peaks differenti
 
 One way to do this is to summarize each sample by calculating its mean intensity. We can then fit linear models to the means-summarized data.
 
+
 ### Fitting models with means-summarized groups
 
 In *Cardinal*, we can simply use `meansTest()` to do means-based testing in a MS imaging  experiment. We use a one-sided formula to specify the fixed effects (the diagnosis in this particular dataset). The groups indicating the observational units must also be provided. Each group is summarized by its mean, and then a linear model is fit to the summaries.
 
 ```{r mtest}
-mtest <- meansTest(rcc_peaks2, ~ rough_diagnosis, groups=rcc_peaks2$groups)
+rcc_mtest <- meansTest(rcc_peaks, ~rough_diagnosis, samples=rcc_peaks$samples)
 
-summary(mtest)
+rcc_mtest
 ```
-
-The summarized results are automatically adjusted for multiple comparisons using FDR.
 
 ### Interpreting the results
 
-We can use the `topFeatures()` method to find differentially abundant peaks.
+We can use the `topFeatures()` method to find differentially abundant peaks. The ranked results are automatically adjusted for multiple comparisons using FDR. We now look for tests that are statisticall significant at the 0.05 level.
 
-```{r top-mtest}
-topFeatures(mtest, p.adjust="fdr", AdjP < .1)
+```{r mtest-top}
+rcc_mtest_top <- topFeatures(rcc_mtest)
+
+subset(rcc_mtest_top, fdr < 0.05)
 ```
 
 But we don't find any.
@@ -205,14 +220,14 @@ Rather than simply average the intensities, we can summarize each sample by segm
 
 ### Fitting models with spatial-DGMM-summarized groups
 
-First, we must segment the data with `spatialDGMM()`, while making sure that each observational unit is segmented within a different group (as specified by `groups`). We've already done this. Now we use `segmentationTest()` to fit the models.
+First, we must segment the data with `spatialDGMM()`, while making sure that each sample is segmented independently (as specified by `groups`). We've already done this. Now we use `meansTest()` on the resulting `SpatialDGMM` segmentation to fit the models.
 
-In order to fit the models, a representative spatial-DGMM segment must be selected for each group. There are two automated ways to do this via classControl: "Ymax" (default) means use the segments with the highest means, and "Mscore" means use the segments with the highest match scores with the fixed effects.
+The segments within each sample are ranked by mean intensity, and the segments with the top-ranked mean are used for comparison.
 
 ```{r stest}
-stest <- segmentationTest(rcc_dgmm, ~ rough_diagnosis)
+rcc_stest <- meansTest(rcc_dgmm, ~rough_diagnosis)
 
-summary(stest)
+rcc_stest
 ```
 
 ### Interpreting the results
@@ -220,19 +235,22 @@ summary(stest)
 Again, we can use the `topFeatures()` method to find differentially abundant peaks.
 
 ```{r stest-top}
-topFeatures(stest, p.adjust="fdr", AdjP < .1)
+rcc_stest_top <- topFeatures(rcc_stest)
+
+subset(rcc_stest_top, fdr < 0.05)
 ```
 
 This time we find 2 differentially abundant peaks (though one is likely an isotope of the other).
 
 ```{r stest-plot}
-plot(stest, model=list(feature=16))
+plot(rcc_stest, i=c("m/z = 884.40"=51, "m/z = 885.44"=52))
 ```
 
-```{r top-image, fig.height=10}
-image(rcc_peaks2, mz=885, layout=c(4,2),
-      contrast.enhance="suppress",
-      normalize.image="linear")
+Their mean intensity is significantly higher in tumor.
+
+```{r stest-image}
+image(rcc_peaks, mz=885.43, layout=c(2,4), free="xy",
+	smooth="bilateral", enhance="adaptive", scale=TRUE)
 ```
 
 # Session information

@@ -52,7 +52,7 @@ UH9812_03 | UH9905_18 | UH9911_05 | UH9912_01
 
 In this RCC dataset, we expect that normal tissue and cancerous tissue will have unique chemical profiles, which we can use to classify new tissue based on the mass spectra.
 
-First, we load the dataset from the *CardinalWorkflows* package. The data is stored in an older format, so we need to coerce it to an `MSImagingExperiment`.
+First, we load the dataset from the *CardinalWorkflows* package using `exampleMSIData()`.
 
 ```{r load-rcc}
 rcc <- CardinalWorkflows::exampleMSIData("rcc")
@@ -141,7 +141,7 @@ We can also note that runs "UH0505_12" and "UH9905_18" have very heterogenous tu
 
 
 
-### Prinipal components analysis (PCA)
+### Principal components analysis (PCA)
 
 Principal component analysis (PCA) is an unsupervised method for exploring a dataset. PCA is available in *Cardinal* through the `PCA()` method.
 
@@ -296,13 +296,13 @@ This lets us clearly see which peaks are distinguishing tumor versus normal tiss
 We can use  the `topFeatures()` method to retrive the *m/z* values associated with each class.
 
 ```{r top-features}
-rcc_top <- topFeatures(rcc_ssc1)
+rcc_ssc_top <- topFeatures(rcc_ssc1)
 ```
 
 Let's find the *m/z* values associated with tumor tissue.
 
 ```{r top-cancer}
-subset(rcc_top, class=="cancer")
+subset(rcc_ssc_top, class=="cancer")
 ```
 
 ```{r top-mz-886}
@@ -313,7 +313,7 @@ image(rcc_peaks, mz=886.4, layout=c(2,4), free="xy",
 And let's find the *m/z* values associated with normal tissue.
 
 ```{r top-normal}
-subset(rcc_top, class=="normal")
+subset(rcc_ssc_top, class=="normal")
 ```
 
 ```{r top-mz-215, fig.height=10}

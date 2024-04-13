@@ -42,7 +42,7 @@ library(Cardinal)
 
 This example uses the PIGII_206 dataset: a cross section of a pig fetus captured using a Thermo LTQ instrument using desorption electrospray ionization (DESI).
 
-First, we load the dataset from the *CardinalWorkflows* package. The data is stored in an older format, so we need to coerce it to an `MSImagingExperiment`.
+First, we load the dataset from the *CardinalWorkflows* package using `exampleMSIData()`.
 
 ```{r load-pig206}
 pig206 <- CardinalWorkflows::exampleMSIData("pig206")
@@ -302,25 +302,25 @@ Very few peaks distinguish the heart (segment 2), while many more distinguish th
 Use the `topFeatures()` method to extract the *m/z* values of the peaks that most distinguish each segment, ranked by t-statistic.
 
 ```{r top-ssc}
-pig206_top <- topFeatures(pig206_ssc1)
+pig206_ssc_top <- topFeatures(pig206_ssc1)
 ```
 
 Peaks associated with the heart:
 
 ```{r top-heart}
-subset(pig206_top, class==2 & statistic > 0)
+subset(pig206_ssc_top, class==2 & statistic > 0)
 ```
 
 Peaks associated with the liver:
 
 ```{r top-liver}
-subset(pig206_top, class==6 & statistic > 0)
+subset(pig206_ssc_top, class==6 & statistic > 0)
 ```
 
 Peaks associated with the brain:
 
 ```{r top-brain}
-subset(pig206_top, class==7 & statistic > 0)
+subset(pig206_ssc_top, class==7 & statistic > 0)
 ```
 
 The top *m/z* values for each segment match up well with the hand-selected peaks.
@@ -413,9 +413,9 @@ image(cardinal_ssc1, col=pal)
 Let's find the *m/z* values associated with the cardinal's body.
 
 ```{r top-body}
-cardinal_top <- topFeatures(cardinal_ssc1)
+cardinal_ssc_top <- topFeatures(cardinal_ssc1)
 
-subset(cardinal_top, class==7)
+subset(cardinal_ssc_top, class==7)
 
 image(cardinal_peaks, mz=207.05, smooth="guided", enhance="histogram")
 ```
@@ -423,7 +423,7 @@ image(cardinal_peaks, mz=207.05, smooth="guided", enhance="histogram")
 And let's find the *m/z* values associated with the "DESI-MS" text.
 
 ```{r top-text}
-subset(cardinal_top, class==6)
+subset(cardinal_ssc_top, class==6)
 
 image(cardinal_peaks, mz=649.15, smooth="guided", enhance="histogram")
 ```

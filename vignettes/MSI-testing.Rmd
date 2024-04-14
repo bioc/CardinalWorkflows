@@ -65,7 +65,7 @@ rcc
 
 We can visualize the diagnoses:
 
-```{r show-rcc}
+```{r rcc-diagnosis}
 image(rcc, "diagnosis", layout=c(2,4), free="xy", col=dpal("Set1"))
 ```
 
@@ -151,7 +151,7 @@ This reduces the dataset to only 54 peaks.
 
 ### Segmentation with spatial Dirichlet Gaussian mixture model (DGMM)
 
-Spatial-DGMM performs spatial segmentation on every peak in the dataset, and estimates the mean and variance of the segments.
+Spatial-DGMM performs spatial segmentation on every peak in the dataset, and estimates the means and variances of the segments.
 
 This is useful because we can use it to automatically detect segments to compare for statistical testing (e.g., "cancer" vs "normal" tissue). However, to do this in a way that doesn't bias downstream statistical testing, we must make sure the segmentation is performed independently for each sample.
 
@@ -176,7 +176,7 @@ We can also plot the estimated parameters for each segment for a peak.
 plot(rcc_dgmm, i=2)
 ```
 
-Each curve shows the estimated distribution for each segment (of 3) and each sample (of 16).
+Each curve shows the estimated intensity distribution for each segment (of 3) and each sample (of 16). Curves of the same color represent segments of the same rank in different samples.
 
 
 
@@ -190,7 +190,7 @@ One way to do this is to summarize each sample by calculating its mean intensity
 
 ### Fitting models with means-summarized groups
 
-In *Cardinal*, we can simply use `meansTest()` to do means-based testing in a MS imaging  experiment. We use a one-sided formula to specify the fixed effects (the diagnosis in this particular dataset). The groups indicating the observational units must also be provided. Each group is summarized by its mean, and then a linear model is fit to the summaries.
+In *Cardinal*, we can simply use `meansTest()` to perform means-based testing in a MS imaging  experiment. We use a one-sided formula to specify the fixed effects (the diagnosis in this particular dataset). The samples must also be provided. Each sample is summarized by its mean, and then a linear model is fit to the summaries.
 
 ```{r mtest}
 rcc_mtest <- meansTest(rcc_peaks, ~rough_diagnosis, samples=rcc_peaks$samples)
@@ -200,7 +200,7 @@ rcc_mtest
 
 ### Interpreting the results
 
-We can use the `topFeatures()` method to find differentially abundant peaks. The ranked results are automatically adjusted for multiple comparisons using FDR. We now look for tests that are statisticall significant at the 0.05 level.
+We can use the `topFeatures()` method to find differentially abundant peaks. The ranked results are automatically adjusted for multiple comparisons using the false discovery rate, or FDR. We now look for tests that are statistically significant at the 0.05 level.
 
 ```{r mtest-top}
 rcc_mtest_top <- topFeatures(rcc_mtest)
@@ -213,7 +213,7 @@ But we don't find any.
 
 ## Class comparison with segmentation-based testing
 
-Means-based testing is fast and simple and can work well for homogeneous samples. However, doesn't use the spatial structure of each peak, so it doesn't take the advantage of MS imaging, and may result in missing differences that actually exist.
+Means-based testing is fast and simple and can work well for homogeneous samples. However, it doesn't use the spatial structure of each peak, so it doesn't take advantage of MS imaging, and may result low statistical power (i.e., failing to detect differences that actually exist).
 
 Rather than simply average the intensities, we can summarize each sample by segmenting it with spatial-DGMM, and comparing the resulting segments. This gives us a bias-free way to keep the spatial heterogeneous information.
 
@@ -222,7 +222,7 @@ Rather than simply average the intensities, we can summarize each sample by segm
 
 First, we must segment the data with `spatialDGMM()`, while making sure that each sample is segmented independently (as specified by `groups`). We've already done this. Now we use `meansTest()` on the resulting `SpatialDGMM` segmentation to fit the models.
 
-The segments within each sample are ranked by mean intensity, and the segments with the top-ranked mean are used for comparison.
+The segments within each sample are ranked by their mean intensities, and the segments with the top-ranked means are used for comparison.
 
 ```{r stest}
 rcc_stest <- meansTest(rcc_dgmm, ~rough_diagnosis)
@@ -232,7 +232,7 @@ rcc_stest
 
 ### Interpreting the results
 
-Again, we can use the `topFeatures()` method to find differentially abundant peaks.
+Again, we can use `topFeatures()` to find differentially abundant peaks.
 
 ```{r stest-top}
 rcc_stest_top <- topFeatures(rcc_stest)
@@ -246,7 +246,7 @@ This time we find 2 differentially abundant peaks (though one is likely an isoto
 plot(rcc_stest, i=c("m/z = 884.40"=51, "m/z = 885.44"=52))
 ```
 
-Their mean intensity is significantly higher in tumor.
+Their mean intensities are significantly higher in tumor tissue.
 
 ```{r stest-image}
 image(rcc_peaks, mz=885.43, layout=c(2,4), free="xy",

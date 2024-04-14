@@ -66,7 +66,7 @@ rcc
 
 We can visualize the diagnoses:
 
-```{r show-rcc}
+```{r rcc-diagnosis}
 image(rcc, "diagnosis", layout=c(2,4), free="xy", col=dpal("Set1"))
 ```
 
@@ -112,7 +112,7 @@ rcc_nobg
 
 ## Visualization
 
-Before proceeding with the statistical analysis, we'll first perform some and exploratory visual analysis of the dataset.
+Before proceeding with the statistical analysis, we'll first perform some exploratory visual analysis of the dataset.
 
 ### Ion images
 
@@ -190,7 +190,7 @@ image(rcc_nmf, type="x", layout=c(2,4), free="xy", scale=TRUE)
 
 We can plot the scores of the first 2 components against each other to see how they separate the diagnoses (or don't, in this case).
 
-```{r pca-scores-diagnosis}
+```{r nmf-scores-diagnosis}
 plot(rcc_nmf, type="x", groups=rcc_nobg$diagnosis, shape=20)
 ```
 
@@ -198,7 +198,7 @@ It looks like there is still quite a lot of overlap between tumor and normal in 
 
 Lastly, we'll also visualize how the NMF components relate to the runs.
 
-```{r pca-scores-run}
+```{r nmf-scores-run}
 plot(rcc_nmf, type="x", groups=run(rcc_nobg), shape=20)
 ```
 
@@ -229,7 +229,7 @@ In order to avoid over-fitting due to the pre-processing, spectra from each CV f
 
 Therefore, for each CV fold, we will re-align the peaks in the pooled training set (so the alignment does not use any peaks from the test set), and then re-align the peaks in the test set to the aligned peaks in the training set.
 
-We use the `crossValidate()` method to perform the processing and cross-validation, and we treat each run as a separate fold.
+We use the `crossValidate()` method to perform the processing and cross-validation, treating each run as a separate fold. The `trainProcess()` and `testProcess()` arguments can be used to control the pre-processing for each fold. The default processing (`peakpProcess`) will work for our situation.
 
 ```{r rcc-cv}
 rcc_ssc_cv <- crossValidate(spatialShrunkenCentroids,
@@ -245,7 +245,7 @@ It appears `s=16` produces the best balanced accuracy of ~93% (reported above as
 
 ### Plotting the classified images
 
-Now we plot the classified images from each of the cross-validation models.
+Now we plot the classified images from each of the cross-validation folds. We plot the fold predictions for the "best" model `s=16` (`i=4`).
 
 ```{r rcc-ssc-image}
 image(rcc_ssc_cv, i=4, layout=c(2,4), free="xy", col=dpal("Set1"))
@@ -256,7 +256,7 @@ Opacity is used to reflect the probability of class membership. The classifier a
 
 ### Plotting the (shrunken) mean spectra
 
-To interpret the model's parameters, we can re-fit a the best model to the whole dataset.
+To interpret the model's parameters, we can re-fit the best model to the whole dataset.
 
 ```{r rcc-ssc-best}
 rcc_ssc1 <- spatialShrunkenCentroids(rcc_nobg,
@@ -278,11 +278,11 @@ It is difficult to tell just from the mean spectra what peaks distinguish each d
 
 Plotting the t-statistics tells us exactly the relationship between each class's centroid and the global mean spectrum. The t-statistics are the difference between a class's centroid and the global mean, divided by a standard error.
 
-Positive t-statistics indicate that peak is systematically higher in that class as compared to the global mean spectrum.
+Positive t-statistics indicate that peak is systematically higher intensity in that class relative to the (global) mean spectrum.
 
-Negative t-statistics indicate that peak is systematically lower in that class as compared to the global mean spectrum.
+Negative t-statistics indicate that peak is systematically lower intensity in that class relative to the (global) mean spectrum.
 
-Due to the shrinkage parameter `s`, unimportant peaks will have a t-statistic of 0 and will effectively have no effect on the classification.
+Due to the sparsity parameter `s`, unimportant peaks will have a t-statistic of 0 and will effectively have no effect on the classification.
 
 ```{r rcc-statistic}
 plot(rcc_ssc1, type="statistic", linewidth=2)

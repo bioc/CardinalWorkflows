@@ -104,7 +104,7 @@ pig206_peaks <- pig206 |>
 pig206_peaks
 ```
 
-This produces a centroided dataset with 1,045 peaks.
+This produces a centroided dataset with 687 peaks.
 
 
 ## Visualization
@@ -225,18 +225,18 @@ Larger values of `s` will remove non-informative peaks, but very large values of
 
 We can also look at the `AIC` and `BIC` values to help guide our choice of what segmentation to explore further. Smaller values are better, but small differences become less meaningful.
 
-In this case, the last 3 models (`s=16`, `s=32`, and `s=64`) all seem to be much better from the previous models, but are not significantly different from each other. However, the models for `s=16` and `s=32` support 7-8 segments, while the model for `s=64` only supports 3 segments.
+In this case, the last 3 models (`s=16`, `s=32`, and `s=64`) all seem to be much better from the previous models, but are not significantly different from each other based on AIC. Based on BIC, the last two models seem to be the best. However, the models for `s=16` and `s=32` support 7-8 segments, while the model for `s=64` only supports 3 segments.
 
 
 ### Plotting the segmentation
 
-Let's plot the first 4 segmentations.
+Let's plot the 4 most sparse segmentations.
 
 ```{r ssc-image-multi}
 image(pig206_ssc, i=3:6)
 ```
 
-It is useful to see how the segmentation changes as fewer peaks are used and the number of segments decreases. Noisy, less-meaningful segments tend to be removed first, so we want to explore the segmentation with the highest value of `s` that still captures the morphology we would expect to see.
+It is useful to see how the segmentation changes as fewer peaks are used and the number of segments decreases. Noisy, less-meaningful segments tend to be removed first, so we want to explore the segmentation with the highest value of `s` that still captures the morphology we would expect to see. At `s=64`, the heart segment is lost. We will choose the most sparse segmentation that still includes the heart.
 
 ```{r ssc-image-best}
 pig206_ssc1 <- pig206_ssc[[5]]

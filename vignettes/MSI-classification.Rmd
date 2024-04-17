@@ -316,7 +316,7 @@ And let's find the *m/z* values associated with normal tissue.
 subset(rcc_ssc_top, class=="normal")
 ```
 
-```{r top-mz-215, fig.height=10}
+```{r top-mz-215}
 image(rcc_peaks, mz=215.24, layout=c(2,4), free="xy",
 	smooth="bilateral", enhance="histogram", scale=TRUE)
 ```

@@ -99,7 +99,7 @@ rcc_peaks
 Rather than rely on the manual region-of-interest selection, we will rely on the fact that cancer tissue is on the left and the normal tissue is on the right on each slide.
 
 ```{r rcc-split}
-x_threshold <- c(35, 23, 28, 39, 29, 28, 46, 32)
+x_threshold <- c(35, 23, 28, 39, 29, 28, 47, 32)
 
 rcc_peaks$rough_diagnosis <- factor("normal", levels=c("cancer", "normal"))
 

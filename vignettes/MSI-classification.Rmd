@@ -322,11 +322,86 @@ image(rcc_peaks, mz=215.24, layout=c(2,4), free="xy",
 ```
 
 
+
+# Multiple instance learning (MIL)
+
+
+In practice, tumor tissue is often heterogenous. Rather than being entirely cancerous, what we label as "tumor" tissue will typically include some regions of healthy "normal" tissue as well.
+
+However, due to time constraints, pathologists will often label entire tissue sections as "tumor" or "normal" rather than annotating region-by-region within a tissue. Therefore, we do not typically have access to sub-tissue labels for training.
+
+Instead, we usually only have whole-tissue labels, so mass spectra that may (correctly) indicate "normal" tissue may be mislabeled as "tumor" in our training (and testing!) data.
+
+Multiple instance learning (MIL) is a technique that can iteratively re-fit classification models to try to account for this uncertainty in the class labels. MIL assumes that the data consists of multiple instances (pixels/spectra in our case) that belong to "bags" (e.g., tissue samples), and the class labels are only observed at the "bag"-level.
+
+We now perform classification with multiple instance learning.
+
+
+## Preparing the samples (bags)
+
+We need to create a factor specifying the 16 tissue samples.
+
+Rather than rely on the manual region-of-interest selection, we will rely on the fact that cancer tissue is on the left and the normal tissue is on the right on each slide.
+
+```{r rcc-split}
+x_threshold <- c(35, 23, 28, 39, 29, 28, 47, 32)
+
+rcc_peaks$rough_diagnosis <- factor("normal", levels=c("cancer", "normal"))
+
+for ( i in seq_len(nrun(rcc_peaks)) ) {
+	irun <- run(rcc_peaks) == runNames(rcc_peaks)[i]
+	j <- irun & coord(rcc_peaks)$x < x_threshold[i]
+	pData(rcc_peaks)$rough_diagnosis[j] <- "cancer"
+}
+
+rcc_peaks$samples <- interaction(run(rcc_peaks), rcc_peaks$rough_diagnosis)
+```
+
+We want to check the samples to make sure the diagnosis labels are homogenous within each sample.
+
+```{r rcc-check}
+tapply(rcc_peaks$diagnosis, rcc_peaks$samples,
+	function(cond) unique(as.character(cond)[!is.na(cond)]))
+```
+
+Since MIL requires re-training the model multiple times, it can be time-consuming, so we will reduce the number of folds (so fewer models need to be trained).
+
+We will create 2 custom folds for the cross-validation. The 1st fold will consist of runs 1-4 and the 2nd fold will consist of runs 5-8.
+
+```{r rcc-folds}
+fold1 <- run(rcc_peaks) %in% runNames(rcc_peaks)[1:4]
+
+rcc_peaks$folds <- factor(ifelse(fold1, "fold1", "fold2"))
+```
+
+## Cross-validation with MIL
+
+Finally, we will perform cross-validation with multiple instance learning by passing the tissue samples as the `bags`.
+
+```{r rcc-mi}
+rcc_ssc_cvmi <- crossValidate(spatialShrunkenCentroids,
+	x=rcc_peaks, y=rcc_peaks$diagnosis, r=1, s=2^(1:4),
+	folds=rcc_peaks$folds, bags=rcc_peaks$samples)
+
+rcc_ssc_cvmi
+```
+
+In this case, the accuracy is not quite as high as before, but the diagnosis labels we are using have already been selected to include only the cancerous regions instead of the whole tissues.
+
+If we did *not* have the sub-tissue labels, then this approach would likely improve real-world performance.
+
+```{r rcc-mi-image}
+image(rcc_ssc_cvmi, i=3, layout=c(2,4), free="xy", col=dpal("Set1"),
+	subset=!is.na(rcc_peaks$diagnosis))
+```
+
+
+
 # Additional notes on cross-validation
 
-Because we used a matched pairs experiment, with one subject per run, it was straightforward to treat the experimental runs as our CV folds. However, it does not always work out this way.
+Because we used a matched pairs experiment, with one subject per run, it was straightforward to treat the experimental runs as our CV folds. However, it does not always work out this way. When using multiple instance learning, we set up custom CV folds to reduce the total number of models we needed to train.
 
-In general, a CV fold needs to include examples of both positive and negative classes. In addition, spectra from the same sample should not be split across multiple CV folds. In MS imaging, it is important to remember that the sample size *does NOT* equal the number of spectra or the number of pixels.
+In general, a CV fold needs to include examples of both positive and negative classes. In addition, spectra from the same sample should not be split across multiple CV folds. In MS imaging, it is important to remember that the sample size *does NOT* equal the number of spectra or the number of pixels, but the number of independent tissue samples.
 
 
 # Session information

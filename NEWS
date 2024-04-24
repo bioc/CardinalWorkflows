@@ -1,4 +1,11 @@
 
+CHANGES IN VERSION 1.35.5 [2024-4-24]
+-----------------------------------
+
+SIGNIFICANT USER-VISIBLE CHANGES
+
+    o Add startup message with available vignettes
+
 CHANGES IN VERSION 1.35.4 [2024-4-19]
 -----------------------------------
 

@@ -1,7 +1,7 @@
 ---
 title: "Segmentation of MS imaging experiments with Cardinal"
 author: "Kylie Ariel Bemis"
-date: "Revised: April 24, 2024"
+date: "Revised: September 12, 2024"
 output:
   BiocStyle::html_document:
   toc: true
@@ -18,6 +18,7 @@ BiocStyle::markdown()
 
 ```{r setup, echo=FALSE, message=FALSE}
 library(Cardinal)
+RNGkind("L'Ecuyer-CMRG")
 setCardinalVerbose(FALSE)
 ```
 
@@ -225,7 +226,7 @@ Larger values of `s` will remove non-informative peaks, but very large values of
 
 We can also look at the `AIC` and `BIC` values to help guide our choice of what segmentation to explore further. Smaller values are better, but small differences become less meaningful.
 
-In this case, the last 3 models (`s=16`, `s=32`, and `s=64`) all seem to be much better from the previous models, but are not significantly different from each other based on AIC. Based on BIC, the last two models seem to be the best. However, the models for `s=16` and `s=32` support 7-8 segments, while the model for `s=64` only supports 3 segments.
+In this case, the last 2 models (`s=32` and `s=64`) seem to be much better from the previous models. However, the model for `s=32` supports 6 segments, while the model for `s=64` only supports 3 segments.
 
 
 ### Plotting the segmentation
@@ -252,7 +253,7 @@ We can plot the segment assignments instead of the probabilities to see the exac
 image(pig206_ssc1, type="class")
 ```
 
-Here, we can see the heart, liver, and brain distinguished as segments 2, 6, and 7.
+Here, we can see the liver, heart, and brain distinguished as segments 4, 5, and 6.
 
 
 ### Plotting the (shrunken) mean spectra
@@ -263,11 +264,11 @@ Plotting the shrunken centroids is analogous to plotting the mean spectrum of ea
 plot(pig206_ssc1, type="centers", linewidth=2)
 ```
 
-Let's break out the centroids for the heart, liver, and brain segments (2, 6, and 7).
+Let's break out the centroids for the liver, heart, and brain segments (4, 5, and 6).
 
 ```{r ssc-centers-2}
 plot(pig206_ssc1, type="centers", linewidth=2,
-	select=c(2,6,7), superpose=FALSE, layout=c(1,3))
+	select=c(4,5,6), superpose=FALSE, layout=c(1,3))
 ```
 
 Some differences are visible, but it can be difficult to tell exactly which peaks are changing between different segments based on the (shrunken) mean spectra alone.
@@ -291,10 +292,10 @@ If we break out the t-statistics for the heart, liver, and brain segments we can
 
 ```{r ssc-statistic-2}
 plot(pig206_ssc1, type="statistic", linewidth=2,
-	select=c(2,6,7), superpose=FALSE, layout=c(1,3))
+	select=c(4,5,6), superpose=FALSE, layout=c(1,3))
 ```
 
-Very few peaks distinguish the heart (segment 2), while many more distinguish the liver and brain (segments 6 and 7).
+Very few peaks distinguish the heart (segment 5), while many more distinguish the liver and brain (segments 4 and 6).
 
 
 ### Retrieving the top *m/z* values
@@ -305,22 +306,22 @@ Use the `topFeatures()` method to extract the *m/z* values of the peaks that mos
 pig206_ssc_top <- topFeatures(pig206_ssc1)
 ```
 
-Peaks associated with the heart:
-
-```{r top-heart}
-subset(pig206_ssc_top, class==2 & statistic > 0)
-```
-
 Peaks associated with the liver:
 
 ```{r top-liver}
-subset(pig206_ssc_top, class==6 & statistic > 0)
+subset(pig206_ssc_top, class==4 & statistic > 0)
+```
+
+Peaks associated with the heart:
+
+```{r top-heart}
+subset(pig206_ssc_top, class==5 & statistic > 0)
 ```
 
 Peaks associated with the brain:
 
 ```{r top-brain}
-subset(pig206_ssc_top, class==7 & statistic > 0)
+subset(pig206_ssc_top, class==6 & statistic > 0)
 ```
 
 The top *m/z* values for each segment match up well with the hand-selected peaks.
@@ -396,7 +397,7 @@ cardinal_ssc
 ```
 
 ```{r ssc-cardinal-multi}
-image(cardinal_ssc, i=2:5)
+image(cardinal_ssc, i=3:6)
 ```
 
 We can see increasing higher sparsities result in lose the "wing" segment, so we will choose the most sparse segmentation that retains the cardinal's wings.
@@ -404,10 +405,10 @@ We can see increasing higher sparsities result in lose the "wing" segment, so we
 Now we can use the segmentation to re-construct the original painting.
 
 ```{r ssc-cardinal-image}
-cardinal_ssc1 <- cardinal_ssc[[4]]
+cardinal_ssc1 <- cardinal_ssc[[3]]
 
-pal <- c("1"="gray", "2"=NA, "3"="brown", "4"="red",
-	"5"=NA, "6"="darkred", "7"="black", "8"="firebrick")
+pal <- c("1"=NA, "2"="firebrick", "3"=NA, "4"="black",
+	"5"="red", "6"="gray", "7"=NA, "8"="darkred")
 
 image(cardinal_ssc1, col=pal)
 ```
@@ -417,7 +418,7 @@ Let's find the *m/z* values associated with the cardinal's body.
 ```{r top-body}
 cardinal_ssc_top <- topFeatures(cardinal_ssc1)
 
-subset(cardinal_ssc_top, class==4)
+subset(cardinal_ssc_top, class==5)
 
 image(cardinal_peaks, mz=207.05, smooth="guided", enhance="histogram")
 ```
@@ -425,7 +426,7 @@ image(cardinal_peaks, mz=207.05, smooth="guided", enhance="histogram")
 And let's find the *m/z* values associated with the "DESI-MS" text.
 
 ```{r top-text}
-subset(cardinal_ssc_top, class==6)
+subset(cardinal_ssc_top, class==2)
 
 image(cardinal_peaks, mz=648.99, smooth="guided", enhance="histogram")
 ```
